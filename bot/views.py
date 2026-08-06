@@ -1,11 +1,18 @@
-import json, base64, os, requests
+import json, base64, os, requests, tempfile
 from datetime import date
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import UserUsage
 
+try:
+    from gradio_client import Client, handle_file
+    HAS_GRADIO_CLIENT = True
+except ImportError:
+    HAS_GRADIO_CLIENT = False
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-LIGHTNING_API_URL = os.getenv("LIGHTNING_API_URL") or os.getenv("BASETEN_API_URL") or os.getenv("MODAL_API_URL")
+HF_SPACE_NAME = os.getenv("HF_SPACE_NAME") # e.g. "username/voxcpm-space"
+MODAL_API_URL = os.getenv("MODAL_API_URL") or os.getenv("BASETEN_API_URL") or os.getenv("LIGHTNING_API_URL")
 API_SECRET_KEY = os.getenv("API_SECRET_KEY")
 DAILY_LIMIT = 5
 
@@ -72,43 +79,85 @@ def telegram_webhook(request):
             return JsonResponse({"status": "ok"})
 
         send_telegram_msg(chat_id, f"🗣️ Synthesizing ({user.selected_voice})...")
-        payload = {"text": text, "voice_mode": user.selected_voice}
-        
-        if user.selected_voice == "custom":
-            if not user.custom_voice_b64:
-                send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
-                return JsonResponse({"status": "ok"})
-            payload["reference_audio"] = user.custom_voice_b64
-            
-        headers = {
-            "X-API-Key": API_SECRET_KEY,
-            "Authorization": f"Api-Key {API_SECRET_KEY}"
-        }
+
+        wav_bytes = None
+        temp_audio_path = None
 
         try:
-            res = requests.post(LIGHTNING_API_URL, json=payload, headers=headers, timeout=120)
-            res.raise_for_status()
+            # Option 1: Use Hugging Face ZeroGPU via gradio_client
+            if HF_SPACE_NAME and HAS_GRADIO_CLIENT:
+                client = Client(HF_SPACE_NAME)
+                ref_file = None
 
-            res_json = None
-            try:
-                res_json = res.json()
-            except Exception:
-                pass
+                if user.selected_voice == "custom":
+                    if not user.custom_voice_b64:
+                        send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
+                        return JsonResponse({"status": "ok"})
 
-            if isinstance(res_json, dict) and "audio_base64" in res_json:
-                wav_bytes = base64.b64decode(res_json["audio_base64"])
+                    audio_data = base64.b64decode(user.custom_voice_b64)
+                    temp_f = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                    temp_f.write(audio_data)
+                    temp_f.close()
+                    temp_audio_path = temp_f.name
+                    ref_file = handle_file(temp_audio_path)
+
+                result_path = client.predict(
+                    text=text,
+                    voice_mode=user.selected_voice,
+                    reference_audio=ref_file,
+                    api_name="/predict"
+                )
+
+                with open(result_path, "rb") as f:
+                    wav_bytes = f.read()
+
+            # Option 2: Fallback to HTTP REST endpoint (Modal / Lightning AI / Baseten)
+            elif MODAL_API_URL:
+                payload = {"text": text, "voice_mode": user.selected_voice}
+                if user.selected_voice == "custom":
+                    if not user.custom_voice_b64:
+                        send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
+                        return JsonResponse({"status": "ok"})
+                    payload["reference_audio"] = user.custom_voice_b64
+
+                headers = {
+                    "X-API-Key": API_SECRET_KEY,
+                    "Authorization": f"Api-Key {API_SECRET_KEY}"
+                }
+                res = requests.post(MODAL_API_URL, json=payload, headers=headers, timeout=120)
+                res.raise_for_status()
+
+                res_json = None
+                try:
+                    res_json = res.json()
+                except Exception:
+                    pass
+
+                if isinstance(res_json, dict) and "audio_base64" in res_json:
+                    wav_bytes = base64.b64decode(res_json["audio_base64"])
+                else:
+                    wav_bytes = res.content
             else:
-                wav_bytes = res.content
+                send_telegram_msg(chat_id, "❌ AI Engine is not configured.")
+                return JsonResponse({"status": "ok"})
 
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
-                data={"chat_id": chat_id},
-                files={"voice": ("voice.wav", wav_bytes, "audio/wav")}
-            )
-            user.usage_count += 1
-            user.save()
+            if wav_bytes:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
+                    data={"chat_id": chat_id},
+                    files={"voice": ("voice.wav", wav_bytes, "audio/wav")}
+                )
+                user.usage_count += 1
+                user.save()
+
         except Exception as e:
-            print(f"Lightning AI API error: {e}")
+            print(f"AI Engine error: {e}")
             send_telegram_msg(chat_id, "❌ AI Engine API failed.")
+        finally:
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                try:
+                    os.remove(temp_audio_path)
+                except Exception:
+                    pass
 
     return JsonResponse({"status": "ok"})
