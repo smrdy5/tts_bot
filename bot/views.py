@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .models import UserUsage
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-MODAL_API_URL = os.getenv("MODAL_API_URL")
+BASETEN_API_URL = os.getenv("BASETEN_API_URL") or os.getenv("MODAL_API_URL")
 API_SECRET_KEY = os.getenv("API_SECRET_KEY")
 DAILY_LIMIT = 5
 
@@ -81,15 +81,15 @@ def telegram_webhook(request):
             payload["reference_audio"] = user.custom_voice_b64
             
         headers = {
-            "X-API-Key": API_SECRET_KEY,
-            "Authorization": f"Api-Key {API_SECRET_KEY}"
+            "Authorization": f"Api-Key {API_SECRET_KEY}",
+            "X-API-Key": API_SECRET_KEY
         }
 
         try:
-            res = requests.post(MODAL_API_URL, json=payload, headers=headers, timeout=120)
+            res = requests.post(BASETEN_API_URL, json=payload, headers=headers, timeout=120)
             res.raise_for_status()
 
-            # Handle both Baseten JSON (audio_base64) & Modal binary WAV response
+            # Baseten JSON response handling
             res_json = None
             try:
                 res_json = res.json()
@@ -109,7 +109,7 @@ def telegram_webhook(request):
             user.usage_count += 1
             user.save()
         except Exception as e:
-            print(f"Cloud API error: {e}")
-            send_telegram_msg(chat_id, "❌ Cloud API failed.")
+            print(f"Baseten API error: {e}")
+            send_telegram_msg(chat_id, "❌ AI Engine API failed.")
 
     return JsonResponse({"status": "ok"})
