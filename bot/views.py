@@ -1,20 +1,15 @@
-import json, base64, os, requests, tempfile
+import json, base64, os, requests
 from datetime import date
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import UserUsage
 
-try:
-    from gradio_client import Client, handle_file
-    HAS_GRADIO_CLIENT = True
-except ImportError:
-    HAS_GRADIO_CLIENT = False
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-HF_SPACE_NAME = os.getenv("HF_SPACE_NAME") # e.g. "username/voxcpm-space"
-MODAL_API_URL = os.getenv("MODAL_API_URL") or os.getenv("BASETEN_API_URL") or os.getenv("LIGHTNING_API_URL")
-API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+PIXAZO_API_KEY = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY")
 DAILY_LIMIT = 5
+
+PIXAZO_TTS_URL = "https://gateway.pixazo.ai/voxcpm/v1/text-to-speech"
+PIXAZO_CLONE_URL = "https://gateway.pixazo.ai/voxcpm/v1/voice-cloning"
 
 def send_telegram_msg(chat_id, text, reply_markup=None):
     payload = {"chat_id": chat_id, "text": text}
@@ -37,9 +32,9 @@ def telegram_webhook(request):
             user.selected_voice = data
             user.save()
             if data == "custom" and not user.custom_voice_b64:
-                send_telegram_msg(chat_id, "🎙️ Custom Voice selected! Send me a 5-10 second voice note so I can clone it.")
+                send_telegram_msg(chat_id, "🎙️ Custom Voice selected! Send me a voice note so I can clone it.")
             else:
-                send_telegram_msg(chat_id, f"✅ Voice changed to: {data.upper()}")
+                send_telegram_msg(chat_id, f"✅ Voice mode set to: {data.upper()}")
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": query["id"]})
         return JsonResponse({"status": "ok"})
 
@@ -56,108 +51,93 @@ def telegram_webhook(request):
             [{"text": "👩 Default Female", "callback_data": "female"}],
             [{"text": "🎙️ Clone My Voice", "callback_data": "custom"}]
         ]}
-        send_telegram_msg(chat_id, "Select your preferred voice:", reply_markup=keyboard)
+        send_telegram_msg(chat_id, "Select your preferred voice mode:", reply_markup=keyboard)
         return JsonResponse({"status": "ok"})
 
+    # Handle Voice Note Upload for Voice Cloning
     if message.get("voice") or message.get("audio"):
         attachment = message.get("voice") or message.get("audio")
         file_path_info = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={attachment['file_id']}").json()
-        audio_bytes = requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path_info['result']['file_path']}").content
-        user.custom_voice_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-        user.selected_voice = "custom"
-        user.save()
-        send_telegram_msg(chat_id, "✅ Custom voice saved! Send text to hear it cloned.")
+        file_path = file_path_info.get("result", {}).get("file_path")
+        if file_path:
+            # Store public Telegram file URL for Pixazo voice cloning
+            audio_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
+            user.custom_voice_b64 = audio_url
+            user.selected_voice = "custom"
+            user.save()
+            send_telegram_msg(chat_id, "✅ Custom voice saved! Send text to synthesize speech in your voice.")
+        else:
+            send_telegram_msg(chat_id, "❌ Failed to save voice note.")
         return JsonResponse({"status": "ok"})
 
+    # Handle Text-to-Speech Generation
     if text:
         today = date.today()
         if user.last_reset_date != today:
             user.usage_count = 0
             user.last_reset_date = today
         if user.usage_count >= DAILY_LIMIT:
-            send_telegram_msg(chat_id, "⚠️ Daily limit reached.")
+            send_telegram_msg(chat_id, "⚠️ Daily limit reached (5/5).")
             return JsonResponse({"status": "ok"})
 
         send_telegram_msg(chat_id, f"🗣️ Synthesizing ({user.selected_voice})...")
 
-        wav_bytes = None
-        temp_audio_path = None
+        headers = {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+        }
+        if PIXAZO_API_KEY:
+            headers["Ocp-Apim-Subscription-Key"] = PIXAZO_API_KEY
 
         try:
-            # Option 1: Use Hugging Face ZeroGPU via gradio_client
-            if HF_SPACE_NAME and HAS_GRADIO_CLIENT:
-                client = Client(HF_SPACE_NAME)
-                ref_file = None
+            audio_result_url = None
 
-                if user.selected_voice == "custom":
-                    if not user.custom_voice_b64:
-                        send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
-                        return JsonResponse({"status": "ok"})
+            # Custom Voice Cloning via Pixazo
+            if user.selected_voice == "custom":
+                if not user.custom_voice_b64:
+                    send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
+                    return JsonResponse({"status": "ok"})
 
-                    audio_data = base64.b64decode(user.custom_voice_b64)
-                    temp_f = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-                    temp_f.write(audio_data)
-                    temp_f.close()
-                    temp_audio_path = temp_f.name
-                    ref_file = handle_file(temp_audio_path)
-
-                result_path = client.predict(
-                    text=text,
-                    voice_mode=user.selected_voice,
-                    reference_audio=ref_file,
-                    api_name="/predict"
-                )
-
-                with open(result_path, "rb") as f:
-                    wav_bytes = f.read()
-
-            # Option 2: Fallback to HTTP REST endpoint (Modal / Lightning AI / Baseten)
-            elif MODAL_API_URL:
-                payload = {"text": text, "voice_mode": user.selected_voice}
-                if user.selected_voice == "custom":
-                    if not user.custom_voice_b64:
-                        send_telegram_msg(chat_id, "❌ Upload a custom voice note first!")
-                        return JsonResponse({"status": "ok"})
-                    payload["reference_audio"] = user.custom_voice_b64
-
-                headers = {
-                    "X-API-Key": API_SECRET_KEY,
-                    "Authorization": f"Api-Key {API_SECRET_KEY}"
+                payload = {
+                    "text": text,
+                    "reference_audio_url": user.custom_voice_b64
                 }
-                res = requests.post(MODAL_API_URL, json=payload, headers=headers, timeout=120)
+                res = requests.post(PIXAZO_CLONE_URL, json=payload, headers=headers, timeout=120)
                 res.raise_for_status()
+                res_data = res.json()
+                audio_result_url = res_data.get("output") or res_data.get("url") or res_data.get("audio_url")
 
-                res_json = None
-                try:
-                    res_json = res.json()
-                except Exception:
-                    pass
-
-                if isinstance(res_json, dict) and "audio_base64" in res_json:
-                    wav_bytes = base64.b64decode(res_json["audio_base64"])
-                else:
-                    wav_bytes = res.content
+            # Standard Text to Speech via Pixazo
             else:
-                send_telegram_msg(chat_id, "❌ AI Engine is not configured.")
-                return JsonResponse({"status": "ok"})
+                prompt_prefix = "(male) " if user.selected_voice == "male" else "(female) "
+                payload = {
+                    "text": f"{prompt_prefix}{text}",
+                    "cfg_value": 2.0,
+                    "dit_steps": 10
+                }
+                res = requests.post(PIXAZO_TTS_URL, json=payload, headers=headers, timeout=120)
+                res.raise_for_status()
+                res_data = res.json()
+                audio_result_url = res_data.get("output") or res_data.get("url") or res_data.get("audio_url")
 
-            if wav_bytes:
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
-                    data={"chat_id": chat_id},
-                    files={"voice": ("voice.wav", wav_bytes, "audio/wav")}
-                )
-                user.usage_count += 1
-                user.save()
+            if audio_result_url:
+                # Download generated WAV audio from Pixazo CDN
+                wav_resp = requests.get(audio_result_url, timeout=30)
+                if wav_resp.status_code == 200:
+                    requests.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
+                        data={"chat_id": chat_id},
+                        files={"voice": ("speech.wav", wav_resp.content, "audio/wav")}
+                    )
+                    user.usage_count += 1
+                    user.save()
+                else:
+                    send_telegram_msg(chat_id, "❌ Failed to download generated audio from Pixazo.")
+            else:
+                send_telegram_msg(chat_id, "❌ Pixazo API did not return audio URL.")
 
         except Exception as e:
-            print(f"AI Engine error: {e}")
-            send_telegram_msg(chat_id, "❌ AI Engine API failed.")
-        finally:
-            if temp_audio_path and os.path.exists(temp_audio_path):
-                try:
-                    os.remove(temp_audio_path)
-                except Exception:
-                    pass
+            print(f"Pixazo VoxCPM API error: {e}")
+            send_telegram_msg(chat_id, "❌ Pixazo VoxCPM API request failed.")
 
     return JsonResponse({"status": "ok"})

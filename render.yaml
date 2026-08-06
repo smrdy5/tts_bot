@@ -11,11 +11,7 @@ services:
         value: 3.10.12
       - key: TELEGRAM_TOKEN
         sync: false
-      - key: HF_SPACE_NAME
-        sync: false
-      - key: MODAL_API_URL
-        sync: false
-      - key: API_SECRET_KEY
+      - key: PIXAZO_API_KEY
         sync: false
       - key: DATABASE_URL
         fromDatabase:
