@@ -1,0 +1,13 @@
+environment_variables: {}
+external_package_dirs: []
+model_metadata: {}
+model_name: VoxCPM-Bot
+python_version: py311
+requirements:
+  - torch
+  - soundfile
+  - voxcpm
+  - numpy
+resources:
+  accelerator: T4
+  use_gpu: true

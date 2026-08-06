@@ -80,13 +80,36 @@ def telegram_webhook(request):
                 return JsonResponse({"status": "ok"})
             payload["reference_audio"] = user.custom_voice_b64
             
+        headers = {
+            "X-API-Key": API_SECRET_KEY,
+            "Authorization": f"Api-Key {API_SECRET_KEY}"
+        }
+
         try:
-            res = requests.post(MODAL_API_URL, json=payload, headers={"X-API-Key": API_SECRET_KEY}, timeout=120)
+            res = requests.post(MODAL_API_URL, json=payload, headers=headers, timeout=120)
             res.raise_for_status()
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice", data={"chat_id": chat_id}, files={"voice": ("voice.wav", res.content, "audio/wav")})
+
+            # Handle both Baseten JSON (audio_base64) & Modal binary WAV response
+            res_json = None
+            try:
+                res_json = res.json()
+            except Exception:
+                pass
+
+            if isinstance(res_json, dict) and "audio_base64" in res_json:
+                wav_bytes = base64.b64decode(res_json["audio_base64"])
+            else:
+                wav_bytes = res.content
+
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
+                data={"chat_id": chat_id},
+                files={"voice": ("voice.wav", wav_bytes, "audio/wav")}
+            )
             user.usage_count += 1
             user.save()
-        except Exception:
+        except Exception as e:
+            print(f"Cloud API error: {e}")
             send_telegram_msg(chat_id, "❌ Cloud API failed.")
 
     return JsonResponse({"status": "ok"})
