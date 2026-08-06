@@ -6,7 +6,7 @@ from .models import UserUsage
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 PIXAZO_API_KEY = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY")
-DAILY_LIMIT = 5
+DAILY_LIMIT = 7
 
 PIXAZO_TTS_URL = "https://gateway.pixazo.ai/voxcpm/v1/text-to-speech"
 PIXAZO_CLONE_URL = "https://gateway.pixazo.ai/voxcpm/v1/voice-cloning"
@@ -77,7 +77,7 @@ def telegram_webhook(request):
             user.usage_count = 0
             user.last_reset_date = today
         if user.usage_count >= DAILY_LIMIT:
-            send_telegram_msg(chat_id, "⚠️ Daily limit reached (5/5).")
+            send_telegram_msg(chat_id, "⚠️ Daily limit reached (7/7).")
             return JsonResponse({"status": "ok"})
 
         send_telegram_msg(chat_id, f"🗣️ Synthesizing ({user.selected_voice})...")
