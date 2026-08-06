@@ -1,24 +1,24 @@
-import os
-import re
-import io
-import base64
-import tempfile
-import numpy as np
 import modal
 from fastapi import Request, Response
+import io
+import base64
+import os
+import re
+import numpy as np
 
 app = modal.App("voxcpm-cloud-api")
 
+# Modal 1.0 Image definition with mounted audio files
 image = (
-    modal.Image.debian_slim(python_version="3.10")
-    .pip_install("torch", "soundfile", "voxcpm", "fastapi", "numpy")
-    .add_local_dir("./assets", remote_path="/assets")
+    modal.Image.debian_slim()
+    .pip_install("torch", "soundfile", "voxcpm", "fastapi")
+    .add_local_file("default_male.wav", remote_path="/assets/default_male.wav")
+    .add_local_file("default_female.wav", remote_path="/assets/default_female.wav")
 )
 
-
 @app.cls(
-    image=image,
-    gpu="T4",
+    image=image, 
+    gpu="T4", 
     timeout=300,
     secrets=[modal.Secret.from_name("voxcpm-secret")] if hasattr(modal.Secret, "from_name") else []
 )
@@ -27,25 +27,23 @@ class VoxCPMService:
     def load_model(self):
         import torch
         from voxcpm import VoxCPM
-
-        print("Loading VoxCPM2 model...")
         self.model = VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False)
         self.model.to(device="cuda", dtype=torch.float16)
-        self.sample_rate = getattr(getattr(self.model, "tts_model", None), "sample_rate", 16000)
+        self.sample_rate = self.model.tts_model.sample_rate
 
     @modal.fastapi_endpoint(method="POST")
     async def generate(self, request: Request):
-        expected_key = os.getenv("API_SECRET_KEY")
-        if expected_key and request.headers.get("X-API-Key") != expected_key:
+        if request.headers.get("X-API-Key") != os.getenv("API_SECRET_KEY"):
             return Response(content="Unauthorized", status_code=401)
-
+            
         import soundfile as sf
-
+        import tempfile
+        
         data = await request.json()
         raw_text = data.get("text", "Hello.")
         voice_mode = data.get("voice_mode", "male")
         ref_audio_b64 = data.get("reference_audio", None)
-
+        
         kwargs = {"cfg_value": 2.0, "inference_timesteps": 10}
         temp_wav = None
 
@@ -59,36 +57,19 @@ class VoxCPMService:
             temp_wav.close()
             kwargs["reference_wav_path"] = temp_wav.name
 
-        chunks = [c.strip() for c in re.split(r"(?<=[.!?]) +|\n+", raw_text) if c.strip()]
-        if not chunks:
-            chunks = [raw_text]
-
+        chunks = [c.strip() for c in re.split(r'(?<=[.!?]) +|\n+', raw_text) if c.strip()]
+        if not chunks: chunks = [raw_text]
+        
         audio_segments = []
-        try:
-            for chunk in chunks:
-                if not chunk:
-                    continue
-                kwargs["text"] = chunk
-                gen_result = self.model.generate(**kwargs)
-                if isinstance(gen_result, tuple):
-                    chunk_audio, sr = gen_result
-                    self.sample_rate = sr
-                else:
-                    chunk_audio = gen_result
-                audio_segments.append(chunk_audio)
-        finally:
-            if temp_wav and os.path.exists(temp_wav.name):
-                try:
-                    os.remove(temp_wav.name)
-                except Exception:
-                    pass
+        for chunk in chunks:
+            if not chunk: continue 
+            kwargs["text"] = chunk
+            audio_segments.append(self.model.generate(**kwargs))
+            
+        if temp_wav: os.remove(temp_wav.name)
 
-        if audio_segments:
-            final_audio = np.concatenate(audio_segments, axis=0)
-        else:
-            final_audio = np.array([], dtype=np.float32)
-
+        final_audio = np.concatenate(audio_segments, axis=0)
         buffer = io.BytesIO()
-        sf.write(buffer, final_audio, self.sample_rate, format="WAV")
-
+        sf.write(buffer, final_audio, self.sample_rate, format='WAV')
+        
         return Response(content=buffer.getvalue(), media_type="audio/wav")
