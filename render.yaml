@@ -11,9 +11,16 @@ services:
         value: 3.10.12
       - key: TELEGRAM_TOKEN
         sync: false
-      - key: DATABASE_URL
-        sync: false
       - key: MODAL_API_URL
         sync: false
       - key: API_SECRET_KEY
         sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voxcpm-db
+          property: connectionString
+
+databases:
+  - name: voxcpm-db
+    region: singapore
+    plan: free
