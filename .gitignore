@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+*.log
+local_settings.py
+
+# Defang / temporary deployment scripts
+.defang/
+deploy_modal.py
+create_assets.py
+
+# Environment variables
+.env
+.venv/
+env/
+venv/

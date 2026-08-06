@@ -1,0 +1,16 @@
+name: voxcpm-telegram-bot
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - target: 8000
+        published: 8000
+        mode: ingress
+    environment:
+      - TELEGRAM_TOKEN
+      - DATABASE_URL
+      - MODAL_API_URL
+      - API_SECRET_KEY

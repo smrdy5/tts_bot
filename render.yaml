@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: voxcpm-telegram-bot
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: MODAL_API_URL
+        sync: false
+      - key: API_SECRET_KEY
+        sync: false
