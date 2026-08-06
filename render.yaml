@@ -11,7 +11,7 @@ services:
         value: 3.10.12
       - key: TELEGRAM_TOKEN
         sync: false
-      - key: BASETEN_API_URL
+      - key: LIGHTNING_API_URL
         sync: false
       - key: API_SECRET_KEY
         sync: false

@@ -1,9 +1,9 @@
 # PROJECT OVERVIEW: VoxCPM Telegram Voice Bot Architecture
 
-You are an expert AI developer. Your task is to build a production-ready Telegram Bot architecture from scratch. This project connects a Django webhook backend (hosted on Render) to a Serverless GPU inference engine (hosted on Baseten via Truss) running VoxCPM2 for Text-to-Speech and Voice Cloning.
+You are an expert AI developer. Your task is to build a production-ready Telegram Bot architecture from scratch. This project connects a Django webhook backend (hosted on Render) to a Serverless GPU inference engine (hosted on Lightning AI Studio) running VoxCPM2 for Text-to-Speech and Voice Cloning.
 
 ## TECH STACK
-* **AI GPU Engine:** Baseten, Truss, Python, VoxCPM2, PyTorch
+* **AI GPU Engine:** Lightning AI, FastAPI, Python, VoxCPM2, PyTorch
 * **Backend:** Django 5.x, Gunicorn, Requests
 * **Database:** PostgreSQL (via Supabase, accessed via Django ORM)
 * **Frontend:** Telegram Bot API (Webhook mode)
