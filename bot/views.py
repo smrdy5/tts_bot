@@ -188,17 +188,22 @@ def telegram_webhook(request):
 
             # 2. Fallback to Pixazo Gateway API
             else:
+                pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or API_SECRET_KEY
                 headers = {
                     "Content-Type": "application/json",
                     "Cache-Control": "no-cache",
                 }
-                if API_SECRET_KEY:
-                    headers["Ocp-Apim-Subscription-Key"] = API_SECRET_KEY
+                if pixazo_key:
+                    headers["Ocp-Apim-Subscription-Key"] = pixazo_key
 
                 if user.selected_voice == "custom":
+                    ref_url = user.custom_voice_b64
+                    if ref_url and not (ref_url.startswith("http://") or ref_url.startswith("https://")):
+                        ref_url = f"data:audio/wav;base64,{ref_url}"
+
                     payload = {
                         "text": text,
-                        "reference_audio": user.custom_voice_b64
+                        "reference_audio_url": ref_url
                     }
                     res = requests.post(PIXAZO_CLONE_URL, json=payload, headers=headers, timeout=120)
                 else:
