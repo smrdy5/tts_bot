@@ -52,6 +52,8 @@ class VoxCPMService:
         elif voice_mode == "female":
             kwargs["reference_wav_path"] = "/assets/default_female.wav"
         elif voice_mode == "custom" and ref_audio_b64:
+            if "," in ref_audio_b64:
+                ref_audio_b64 = ref_audio_b64.split(",", 1)[1]
             temp_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
             temp_wav.write(base64.b64decode(ref_audio_b64))
             temp_wav.close()
