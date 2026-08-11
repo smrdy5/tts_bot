@@ -167,16 +167,28 @@ def telegram_webhook(request):
                             wav_bytes = res.content
                             break
 
-                        last_error = f"HTTP {res.status_code}: {res.text[:100]}"
+                        clean_text = res.text[:100].replace("\n", " ").strip()
+                        if res.status_code == 404:
+                            last_error = "HTTP 404 (Tunnel Not Found / Colab Disconnected)"
+                        else:
+                            last_error = f"HTTP {res.status_code}: {clean_text}"
                     except Exception as req_err:
                         last_error = str(req_err)
 
                 if not wav_bytes:
                     print(f"VoxCPM Colab API error: {last_error}")
-                    send_telegram_msg(
-                        chat_id, 
-                        f"❌ Colab API Error ({last_error}).\nPlease ensure your Google Colab notebook is running and COLAB_API_URL is valid in Render."
-                    )
+                    if "404" in str(last_error):
+                        send_telegram_msg(
+                            chat_id, 
+                            "❌ Google Colab Tunnel Not Found (HTTP 404).\n"
+                            "Your Colab session restarted or the ngrok URL changed.\n"
+                            "👉 Please check your Colab notebook, copy the new ngrok URL, and update `COLAB_API_URL` in Render Environment Variables!"
+                        )
+                    else:
+                        send_telegram_msg(
+                            chat_id, 
+                            f"❌ Colab API Error ({last_error}).\nPlease ensure your Google Colab notebook is running and COLAB_API_URL is valid in Render."
+                        )
                     return JsonResponse({"status": "ok"})
 
             elif api_url and "YOUR-NGROK-URL" in api_url:
