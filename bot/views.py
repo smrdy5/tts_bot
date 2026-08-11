@@ -146,17 +146,30 @@ def telegram_webhook(request):
                         "text": text,
                         "reference_audio_url": ref_url
                     }
-                    res = requests.post(PIXAZO_CLONE_URL, json=payload, headers=headers, timeout=120)
+                    target_url = PIXAZO_CLONE_URL
                 else:
                     prompt_prefix = f"({user.selected_voice}) "
                     payload = {
                         "text": f"{prompt_prefix}{text}",
                         "cfg_value": 2.0,
-                        "dit_steps": 10
+                        "dit_steps": 8
                     }
-                    res = requests.post(PIXAZO_TTS_URL, json=payload, headers=headers, timeout=120)
+                    target_url = PIXAZO_TTS_URL
 
-                if res.status_code == 200:
+                # Attempt request with automatic retry for Cloudflare/server timeouts
+                res = None
+                for attempt in range(2):
+                    try:
+                        res = requests.post(target_url, json=payload, headers=headers, timeout=90)
+                        if res.status_code == 200:
+                            break
+                        elif res.status_code in [522, 504, 502, 503] and attempt == 0:
+                            print(f"Pixazo returned HTTP {res.status_code}, retrying attempt 2...")
+                            continue
+                    except Exception as req_e:
+                        print(f"Pixazo request attempt {attempt + 1} failed: {req_e}")
+
+                if res and res.status_code == 200:
                     res_data = res.json()
                     audio_result_url = res_data.get("output") or res_data.get("url") or res_data.get("audio_url")
                     if audio_result_url:
@@ -164,9 +177,15 @@ def telegram_webhook(request):
                         if wav_resp.status_code == 200:
                             wav_bytes = wav_resp.content
                 else:
-                    err_detail = res.text[:100].replace("\n", " ").strip()
-                    print(f"Pixazo API synthesis error: HTTP {res.status_code} - {err_detail}")
-                    send_telegram_msg(chat_id, f"❌ Pixazo API Error ({res.status_code}): {err_detail}")
+                    status_code = res.status_code if res else "Timeout"
+                    if status_code in [522, 504]:
+                        err_msg = "⏳ Pixazo cloud server timed out (HTTP 522). Pixazo's GPUs are busy or warming up. Please try sending your message again!"
+                    else:
+                        clean_text = res.text[:100].replace("\n", " ").strip() if res else "No response"
+                        err_msg = f"❌ Pixazo API Error ({status_code}): {clean_text}"
+                    
+                    print(f"Pixazo API synthesis error: {err_msg}")
+                    send_telegram_msg(chat_id, err_msg)
                     return JsonResponse({"status": "ok"})
             else:
                 send_telegram_msg(
