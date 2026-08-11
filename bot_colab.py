@@ -5,42 +5,55 @@ import telebot
 
 # Read tokens and URLs from environment variables
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
-
-# Google Colab ngrok URL (e.g. "https://xxxx-xx-xx-xx.ngrok-free.app")
 COLAB_API_URL = os.environ.get("COLAB_API_URL", "https://YOUR-NGROK-URL.ngrok-free.app")
 
 if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN environment variable is missing.")
+    raise ValueError("TELEGRAM_BOT_TOKEN or TELEGRAM_TOKEN environment variable is missing.")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
+    if "YOUR-NGROK-URL" in COLAB_API_URL:
+        bot.reply_to(message, "⚠️ `COLAB_API_URL` is set to placeholder.\nPlease set your active ngrok URL in Render Environment Variables!")
+        return
+
     bot.reply_to(message, "Generating audio with VoxCPM... 🎙️")
     
-    try:
-        endpoint = COLAB_API_URL.rstrip("/")
-        if not endpoint.endswith("/generate"):
-            endpoint = f"{endpoint}/generate"
+    headers = {
+        "ngrok-skip-browser-warning": "69420",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    }
 
-        # Send text to Colab API endpoint
-        response = requests.post(
-            endpoint, 
-            data={"text": message.text},
-            timeout=60
-        )
-        
-        if response.status_code == 200:
-            # Send the synthesized voice note back to Telegram
-            audio_bytes = io.BytesIO(response.content)
-            audio_bytes.name = "voice.wav"
-            bot.send_voice(message.chat.id, audio_bytes)
-        else:
-            bot.reply_to(message, f"Error: Colab server returned status code {response.status_code}.")
-            
-    except Exception as e:
-        bot.reply_to(message, "Connection failed. Make sure your Google Colab notebook is running!")
-        print(f"Error connecting to Colab API: {e}")
+    base_url = COLAB_API_URL.rstrip("/")
+    endpoints = [base_url if base_url.endswith("/generate") else f"{base_url}/generate", base_url]
+
+    audio_bytes = None
+    last_err = None
+
+    for ep in endpoints:
+        try:
+            # 1. Try sending JSON payload
+            resp = requests.post(ep, json={"text": message.text}, headers=headers, timeout=60)
+            if resp.status_code == 200 and not resp.content.startswith(b"<!DOCTYPE") and not resp.content.startswith(b"<html"):
+                audio_bytes = io.BytesIO(resp.content)
+                break
+
+            # 2. Try sending Form Data payload
+            resp = requests.post(ep, data={"text": message.text}, headers=headers, timeout=60)
+            if resp.status_code == 200 and not resp.content.startswith(b"<!DOCTYPE") and not resp.content.startswith(b"<html"):
+                audio_bytes = io.BytesIO(resp.content)
+                break
+
+            last_err = f"HTTP {resp.status_code}: {resp.text[:100]}"
+        except Exception as e:
+            last_err = str(e)
+
+    if audio_bytes:
+        audio_bytes.name = "voice.wav"
+        bot.send_voice(message.chat.id, audio_bytes)
+    else:
+        bot.reply_to(message, f"❌ Connection failed ({last_err}). Make sure your Google Colab notebook & ngrok tunnel are running!")
 
 if __name__ == "__main__":
     print(f"Bot started polling... Target Colab API: {COLAB_API_URL}")

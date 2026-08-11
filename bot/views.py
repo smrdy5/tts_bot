@@ -131,12 +131,18 @@ def telegram_webhook(request):
             api_key = os.getenv("API_SECRET_KEY") or API_SECRET_KEY
 
             # 1. Use Google Colab ngrok URL or Modal API if configured
-            if api_url:
-                endpoint = api_url.rstrip("/")
-                if not endpoint.endswith("/generate"):
-                    endpoint = f"{endpoint}/generate"
+            if api_url and "YOUR-NGROK-URL" not in api_url:
+                base_url = api_url.rstrip("/")
+                endpoints = []
+                if base_url.endswith("/generate"):
+                    endpoints = [base_url, base_url.rsplit("/", 1)[0]]
+                else:
+                    endpoints = [f"{base_url}/generate", base_url]
 
-                headers = {}
+                headers = {
+                    "ngrok-skip-browser-warning": "69420",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                }
                 if api_key:
                     headers["X-API-Key"] = api_key
 
@@ -145,14 +151,40 @@ def telegram_webhook(request):
                     "voice_mode": user.selected_voice,
                     "reference_audio": user.custom_voice_b64 if user.selected_voice == "custom" else None
                 }
-                
-                # Attempt JSON post first, fallback to form data if required
-                res = requests.post(endpoint, json=payload, headers=headers, timeout=120)
-                if res.status_code != 200:
-                    res = requests.post(endpoint, data={"text": text}, headers=headers, timeout=120)
 
-                res.raise_for_status()
-                wav_bytes = res.content
+                last_error = None
+                for ep in endpoints:
+                    try:
+                        # Attempt 1: JSON payload
+                        res = requests.post(ep, json=payload, headers=headers, timeout=90)
+                        if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE") and not res.content.startswith(b"<html"):
+                            wav_bytes = res.content
+                            break
+
+                        # Attempt 2: Form Data payload
+                        res = requests.post(ep, data={"text": text}, headers=headers, timeout=90)
+                        if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE") and not res.content.startswith(b"<html"):
+                            wav_bytes = res.content
+                            break
+
+                        last_error = f"HTTP {res.status_code}: {res.text[:100]}"
+                    except Exception as req_err:
+                        last_error = str(req_err)
+
+                if not wav_bytes:
+                    print(f"VoxCPM Colab API error: {last_error}")
+                    send_telegram_msg(
+                        chat_id, 
+                        f"❌ Colab API Error ({last_error}).\nPlease ensure your Google Colab notebook is running and COLAB_API_URL is valid in Render."
+                    )
+                    return JsonResponse({"status": "ok"})
+
+            elif api_url and "YOUR-NGROK-URL" in api_url:
+                send_telegram_msg(
+                    chat_id,
+                    "⚠️ `COLAB_API_URL` is set to placeholder.\nPlease set your active ngrok URL in Render Environment Variables!"
+                )
+                return JsonResponse({"status": "ok"})
 
             # 2. Fallback to Pixazo Gateway API
             else:
