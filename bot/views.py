@@ -52,15 +52,12 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 target_url = PIXAZO_TTS_URL
 
             res = None
-            for attempt in range(2):
-                try:
-                    res = requests.post(target_url, json=payload, headers=headers, timeout=60)
-                    if res.status_code == 200:
-                        break
-                    elif res.status_code in [522, 504, 502, 503] and attempt == 0:
-                        continue
-                except Exception as req_e:
-                    print(f"Pixazo attempt {attempt + 1} error: {req_e}")
+            try:
+                res = requests.post(target_url, json=payload, headers=headers, timeout=45)
+            except requests.exceptions.Timeout:
+                print("Pixazo request timed out after 45s.")
+            except Exception as req_e:
+                print(f"Pixazo request exception: {req_e}")
 
             if res and res.status_code == 200:
                 res_data = res.json()
@@ -80,12 +77,21 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 user.usage_count += 1
                 user.save()
             else:
-                status_code = res.status_code if res else "Timeout"
-                if status_code in [522, 504]:
-                    err_msg = "⏳ Pixazo server timed out. Please try sending your message again!"
+                if res is not None:
+                    status_code = res.status_code
+                    clean_text = res.text[:120].replace("\n", " ").strip()
+                    if status_code in [401, 403]:
+                        err_msg = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}\nPlease check `PIXAZO_API_KEY` on Render."
+                    elif status_code == 400:
+                        err_msg = f"❌ Pixazo Bad Request ({status_code}): {clean_text}"
+                    elif status_code == 402:
+                        err_msg = f"⚠️ Pixazo Account Balance Low ({status_code}): {clean_text}"
+                    else:
+                        err_msg = f"❌ Pixazo API Error ({status_code}): {clean_text}"
                 else:
-                    clean_text = res.text[:100].replace("\n", " ").strip() if res else "No response"
-                    err_msg = f"❌ Pixazo API Error ({status_code}): {clean_text}"
+                    err_msg = "⏳ Pixazo server response timed out after 45 seconds. Please try sending your prompt again!"
+
+                print(f"Pixazo synthesis error details: {err_msg}")
                 send_telegram_msg(chat_id, err_msg)
         else:
             send_telegram_msg(chat_id, "⚠️ `PIXAZO_API_KEY` is missing in Render Environment Variables.")
@@ -148,8 +154,9 @@ def telegram_webhook(request):
 
     if text == "/myvoice":
         if user.custom_voice_b64:
-            b64_len_kb = len(user.custom_voice_b64) // 1024
-            send_telegram_msg(chat_id, f"🎙️ Saved Custom Voice Profile:\n• Mode: {user.selected_voice.upper()}\n• Voice Sample Size: {b64_len_kb} KB\n\nAll text will be synthesized using this saved voice.")
+            is_url = user.custom_voice_b64.startswith("http")
+            info = "Stored URL Profile" if is_url else f"{len(user.custom_voice_b64)//1024} KB Sample"
+            send_telegram_msg(chat_id, f"🎙️ Saved Custom Voice Profile:\n• Mode: {user.selected_voice.upper()}\n• Info: {info}\n\nAll text will be synthesized using this voice.")
         else:
             send_telegram_msg(chat_id, "ℹ️ No custom voice profile saved yet. Send a voice note to clone your voice!")
         return JsonResponse({"status": "ok"})
@@ -171,15 +178,11 @@ def telegram_webhook(request):
         
         if file_path:
             download_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-            audio_resp = requests.get(download_url, timeout=30)
-            if audio_resp.status_code == 200:
-                audio_b64 = base64.b64encode(audio_resp.content).decode("utf-8")
-                user.custom_voice_b64 = audio_b64
-                user.selected_voice = "custom"
-                user.save()
-                send_telegram_msg(chat_id, "✅ Custom voice permanently saved! All future text messages will be synthesized with this cloned voice.")
-            else:
-                send_telegram_msg(chat_id, "❌ Failed to download voice note content from Telegram.")
+            # Save download_url so Pixazo can download the reference audio directly
+            user.custom_voice_b64 = download_url
+            user.selected_voice = "custom"
+            user.save()
+            send_telegram_msg(chat_id, "✅ Custom voice permanently saved! All future text messages will be synthesized with this cloned voice.")
         else:
             send_telegram_msg(chat_id, "❌ Failed to retrieve voice note path from Telegram.")
         return JsonResponse({"status": "ok"})
@@ -200,7 +203,7 @@ def telegram_webhook(request):
             send_telegram_msg(chat_id, "❌ No custom voice saved yet! Record and send a voice note first to clone your speech voice.")
             return JsonResponse({"status": "ok"})
 
-        # Launch synthesis in background thread and respond 200 OK immediately (< 50ms)
+        # Spawn asynchronous thread so Webhook responds 200 OK immediately (< 50ms)
         threading.Thread(
             target=async_speech_synthesis,
             args=(chat_id, user.id, text, user.selected_voice, user.custom_voice_b64)
