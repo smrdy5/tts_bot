@@ -24,7 +24,10 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
 
         wav_bytes = None
         pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or PIXAZO_API_KEY
+        colab_url = os.getenv("COLAB_API_URL") or os.getenv("MODAL_API_URL")
+        pixazo_error = None
 
+        # 1. Primary Engine: Pixazo Gateway API
         if pixazo_key:
             headers = {
                 "Content-Type": "application/json",
@@ -47,17 +50,17 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 payload = {
                     "text": f"{prompt_prefix}{text}",
                     "cfg_value": 2.0,
-                    "dit_steps": 6
+                    "dit_steps": 4  # Maximum speed setting
                 }
                 target_url = PIXAZO_TTS_URL
 
             res = None
             try:
-                res = requests.post(target_url, json=payload, headers=headers, timeout=45)
+                res = requests.post(target_url, json=payload, headers=headers, timeout=35)
             except requests.exceptions.Timeout:
-                print("Pixazo request timed out after 45s.")
+                pixazo_error = "⏳ Pixazo server timed out (35s)."
             except Exception as req_e:
-                print(f"Pixazo request exception: {req_e}")
+                pixazo_error = f"Pixazo request error: {req_e}"
 
             if res and res.status_code == 200:
                 res_data = res.json()
@@ -66,35 +69,61 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                     wav_resp = requests.get(audio_result_url, timeout=30)
                     if wav_resp.status_code == 200:
                         wav_bytes = wav_resp.content
-
-            if wav_bytes:
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
-                    data={"chat_id": chat_id},
-                    files={"voice": ("speech.wav", wav_bytes, "audio/wav")}
-                )
-                user = UserUsage.objects.get(id=user_db_id)
-                user.usage_count += 1
-                user.save()
-            else:
-                if res is not None:
-                    status_code = res.status_code
-                    clean_text = res.text[:120].replace("\n", " ").strip()
-                    if status_code in [401, 403]:
-                        err_msg = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}\nPlease check `PIXAZO_API_KEY` on Render."
-                    elif status_code == 400:
-                        err_msg = f"❌ Pixazo Bad Request ({status_code}): {clean_text}"
-                    elif status_code == 402:
-                        err_msg = f"⚠️ Pixazo Account Balance Low ({status_code}): {clean_text}"
-                    else:
-                        err_msg = f"❌ Pixazo API Error ({status_code}): {clean_text}"
+            elif res is not None:
+                status_code = res.status_code
+                clean_text = res.text[:120].replace("\n", " ").strip()
+                if clean_text.startswith("<!DOCTYPE") or clean_text.startswith("<html"):
+                    clean_text = "Cloudflare Timeout (Pixazo GPU backend busy)"
+                
+                if status_code in [401, 403]:
+                    pixazo_error = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}\nPlease check `PIXAZO_API_KEY` on Render."
+                elif status_code == 402:
+                    pixazo_error = f"⚠️ Pixazo Account Balance Low ({status_code}): {clean_text}"
+                elif status_code == 522:
+                    pixazo_error = f"⏳ Pixazo Gateway Timeout (522): Cloudflare connection timed out waiting for Pixazo."
                 else:
-                    err_msg = "⏳ Pixazo server response timed out after 45 seconds. Please try sending your prompt again!"
+                    pixazo_error = f"❌ Pixazo API Error ({status_code}): {clean_text}"
 
-                print(f"Pixazo synthesis error details: {err_msg}")
-                send_telegram_msg(chat_id, err_msg)
+        # 2. Fallback Engine: Google Colab / Modal API (if configured and Pixazo failed)
+        if not wav_bytes and colab_url and "YOUR-NGROK-URL" not in colab_url:
+            base_url = colab_url.rstrip("/")
+            endpoints = [base_url if base_url.endswith("/generate") else f"{base_url}/generate", base_url]
+            colab_headers = {
+                "ngrok-skip-browser-warning": "69420",
+                "User-Agent": "Mozilla/5.0",
+            }
+            colab_payload = {
+                "text": text,
+                "voice_mode": selected_voice,
+                "reference_audio": custom_voice_b64 if selected_voice == "custom" else None
+            }
+            for ep in endpoints:
+                try:
+                    c_res = requests.post(ep, json=colab_payload, headers=colab_headers, timeout=60)
+                    if c_res.status_code == 200 and not c_res.content.startswith(b"<!DOCTYPE") and not c_res.content.startswith(b"<html"):
+                        wav_bytes = c_res.content
+                        break
+                    c_res = requests.post(ep, data={"text": text}, headers=colab_headers, timeout=60)
+                    if c_res.status_code == 200 and not c_res.content.startswith(b"<!DOCTYPE") and not c_res.content.startswith(b"<html"):
+                        wav_bytes = c_res.content
+                        break
+                except Exception:
+                    pass
+
+        if wav_bytes:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
+                data={"chat_id": chat_id},
+                files={"voice": ("speech.wav", wav_bytes, "audio/wav")}
+            )
+            user = UserUsage.objects.get(id=user_db_id)
+            user.usage_count += 1
+            user.save()
         else:
-            send_telegram_msg(chat_id, "⚠️ `PIXAZO_API_KEY` is missing in Render Environment Variables.")
+            final_err = pixazo_error or "⚠️ Speech synthesis failed. Please try again in a few moments."
+            print(f"Synthesis error: {final_err}")
+            send_telegram_msg(chat_id, final_err)
+
     except Exception as e:
         print(f"Async synthesis error: {e}")
         send_telegram_msg(chat_id, "❌ Speech synthesis failed. Please try again later.")
@@ -178,7 +207,6 @@ def telegram_webhook(request):
         
         if file_path:
             download_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-            # Save download_url so Pixazo can download the reference audio directly
             user.custom_voice_b64 = download_url
             user.selected_voice = "custom"
             user.save()
