@@ -127,86 +127,15 @@ def telegram_webhook(request):
 
         try:
             wav_bytes = None
-            api_url = os.getenv("COLAB_API_URL") or COLAB_API_URL or os.getenv("MODAL_API_URL") or MODAL_API_URL
-            api_key = os.getenv("API_SECRET_KEY") or API_SECRET_KEY
+            pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or API_SECRET_KEY
 
-            # 1. Use Google Colab ngrok URL or Modal API if configured
-            if api_url and "YOUR-NGROK-URL" not in api_url:
-                base_url = api_url.rstrip("/")
-                endpoints = []
-                if base_url.endswith("/generate"):
-                    endpoints = [base_url, base_url.rsplit("/", 1)[0]]
-                else:
-                    endpoints = [f"{base_url}/generate", base_url]
-
-                headers = {
-                    "ngrok-skip-browser-warning": "69420",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                }
-                if api_key:
-                    headers["X-API-Key"] = api_key
-
-                payload = {
-                    "text": text,
-                    "voice_mode": user.selected_voice,
-                    "reference_audio": user.custom_voice_b64 if user.selected_voice == "custom" else None
-                }
-
-                last_error = None
-                for ep in endpoints:
-                    try:
-                        # Attempt 1: JSON payload
-                        res = requests.post(ep, json=payload, headers=headers, timeout=90)
-                        if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE") and not res.content.startswith(b"<html"):
-                            wav_bytes = res.content
-                            break
-
-                        # Attempt 2: Form Data payload
-                        res = requests.post(ep, data={"text": text}, headers=headers, timeout=90)
-                        if res.status_code == 200 and not res.content.startswith(b"<!DOCTYPE") and not res.content.startswith(b"<html"):
-                            wav_bytes = res.content
-                            break
-
-                        clean_text = res.text[:100].replace("\n", " ").strip()
-                        if res.status_code == 404:
-                            last_error = "HTTP 404 (Tunnel Not Found / Colab Disconnected)"
-                        else:
-                            last_error = f"HTTP {res.status_code}: {clean_text}"
-                    except Exception as req_err:
-                        last_error = str(req_err)
-
-                if not wav_bytes:
-                    print(f"VoxCPM Colab API error: {last_error}")
-                    if "404" in str(last_error):
-                        send_telegram_msg(
-                            chat_id, 
-                            "❌ Google Colab Tunnel Not Found (HTTP 404).\n"
-                            "Your Colab session restarted or the ngrok URL changed.\n"
-                            "👉 Please check your Colab notebook, copy the new ngrok URL, and update `COLAB_API_URL` in Render Environment Variables!"
-                        )
-                    else:
-                        send_telegram_msg(
-                            chat_id, 
-                            f"❌ Colab API Error ({last_error}).\nPlease ensure your Google Colab notebook is running and COLAB_API_URL is valid in Render."
-                        )
-                    return JsonResponse({"status": "ok"})
-
-            elif api_url and "YOUR-NGROK-URL" in api_url:
-                send_telegram_msg(
-                    chat_id,
-                    "⚠️ `COLAB_API_URL` is set to placeholder.\nPlease set your active ngrok URL in Render Environment Variables!"
-                )
-                return JsonResponse({"status": "ok"})
-
-            # 2. Fallback to Pixazo Gateway API
-            else:
-                pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or API_SECRET_KEY
+            # Primary Engine: Pixazo Gateway API
+            if pixazo_key:
                 headers = {
                     "Content-Type": "application/json",
                     "Cache-Control": "no-cache",
+                    "Ocp-Apim-Subscription-Key": pixazo_key,
                 }
-                if pixazo_key:
-                    headers["Ocp-Apim-Subscription-Key"] = pixazo_key
 
                 if user.selected_voice == "custom":
                     ref_url = user.custom_voice_b64
@@ -219,7 +148,7 @@ def telegram_webhook(request):
                     }
                     res = requests.post(PIXAZO_CLONE_URL, json=payload, headers=headers, timeout=120)
                 else:
-                    prompt_prefix = "(male) " if user.selected_voice == "male" else "(female) "
+                    prompt_prefix = f"({user.selected_voice}) "
                     payload = {
                         "text": f"{prompt_prefix}{text}",
                         "cfg_value": 2.0,
@@ -227,13 +156,24 @@ def telegram_webhook(request):
                     }
                     res = requests.post(PIXAZO_TTS_URL, json=payload, headers=headers, timeout=120)
 
-                res.raise_for_status()
-                res_data = res.json()
-                audio_result_url = res_data.get("output") or res_data.get("url") or res_data.get("audio_url")
-                if audio_result_url:
-                    wav_resp = requests.get(audio_result_url, timeout=30)
-                    if wav_resp.status_code == 200:
-                        wav_bytes = wav_resp.content
+                if res.status_code == 200:
+                    res_data = res.json()
+                    audio_result_url = res_data.get("output") or res_data.get("url") or res_data.get("audio_url")
+                    if audio_result_url:
+                        wav_resp = requests.get(audio_result_url, timeout=30)
+                        if wav_resp.status_code == 200:
+                            wav_bytes = wav_resp.content
+                else:
+                    err_detail = res.text[:100].replace("\n", " ").strip()
+                    print(f"Pixazo API synthesis error: HTTP {res.status_code} - {err_detail}")
+                    send_telegram_msg(chat_id, f"❌ Pixazo API Error ({res.status_code}): {err_detail}")
+                    return JsonResponse({"status": "ok"})
+            else:
+                send_telegram_msg(
+                    chat_id, 
+                    "⚠️ `PIXAZO_API_KEY` is not set! Please add your Pixazo API key in Render Environment Variables."
+                )
+                return JsonResponse({"status": "ok"})
 
             if wav_bytes:
                 requests.post(
