@@ -25,10 +25,29 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
         wav_bytes = None
         pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or PIXAZO_API_KEY
         colab_url = os.getenv("COLAB_API_URL") or os.getenv("MODAL_API_URL")
+        hf_space = os.getenv("HF_SPACE_ID") or os.getenv("HF_SPACE_NAME")
         pixazo_error = None
 
-        # 1. Primary Engine: Pixazo Gateway API (VoxCPM 2.0)
-        if pixazo_key:
+        # 1. Hugging Face Space API Engine (if HF_SPACE_ID is configured)
+        if hf_space:
+            try:
+                from gradio_client import Client
+                print(f"Connecting to Hugging Face Space: {hf_space}")
+                client = Client(hf_space)
+                res_file = client.predict(
+                    text=text,
+                    voice_mode=selected_voice,
+                    reference_audio=custom_voice_b64 if selected_voice == "custom" else None,
+                    api_name="/predict"
+                )
+                if res_file and os.path.exists(res_file):
+                    with open(res_file, "rb") as f:
+                        wav_bytes = f.read()
+            except Exception as hf_e:
+                print(f"Hugging Face Space API error: {hf_e}")
+
+        # 2. Pixazo Gateway API (VoxCPM 2.0)
+        if not wav_bytes and pixazo_key:
             headers = {
                 "Content-Type": "application/json",
                 "Cache-Control": "no-cache",
