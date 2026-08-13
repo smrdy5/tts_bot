@@ -55,12 +55,19 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 target_url = PIXAZO_TTS_URL
 
             res = None
-            try:
-                res = requests.post(target_url, json=payload, headers=headers, timeout=45)
-            except requests.exceptions.Timeout:
-                pixazo_error = "⏳ Pixazo server timed out (45s)."
-            except Exception as req_e:
-                pixazo_error = f"Pixazo request error: {req_e}"
+            for attempt in range(3):
+                try:
+                    res = requests.post(target_url, json=payload, headers=headers, timeout=25)
+                    if res.status_code == 200:
+                        break
+                    elif res.status_code in [502, 503, 504, 522] and attempt < 2:
+                        import time
+                        time.sleep(2)
+                        continue
+                    else:
+                        break
+                except Exception as req_e:
+                    pixazo_error = f"Pixazo request error: {req_e}"
 
             if res and res.status_code == 200:
                 res_data = res.json()
@@ -72,15 +79,13 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
             elif res is not None:
                 status_code = res.status_code
                 clean_text = res.text[:120].replace("\n", " ").strip()
-                if clean_text.startswith("<!DOCTYPE") or clean_text.startswith("<html"):
-                    clean_text = "Cloudflare Timeout (Pixazo GPU backend busy)"
                 
-                if status_code in [401, 403]:
+                if status_code in [502, 503, 504, 522]:
+                    pixazo_error = "⏳ Pixazo GPU servers are currently undergoing temporary maintenance or high load (HTTP 502/504). Please try again in a few moments!"
+                elif status_code in [401, 403]:
                     pixazo_error = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}\nPlease check `PIXAZO_API_KEY` on Render."
                 elif status_code == 402:
                     pixazo_error = f"⚠️ Pixazo Account Balance Low ({status_code}): {clean_text}"
-                elif status_code == 522:
-                    pixazo_error = f"⏳ Pixazo Gateway Timeout (522): Cloudflare connection timed out."
                 else:
                     pixazo_error = f"❌ Pixazo API Error ({status_code}): {clean_text}"
         else:
