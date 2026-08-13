@@ -1,4 +1,4 @@
-import json, base64, os, requests, threading, asyncio, edge_tts
+import json, base64, os, requests, threading
 from datetime import date
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -17,32 +17,6 @@ def send_telegram_msg(chat_id, text, reply_markup=None):
     if reply_markup: 
         payload["reply_markup"] = reply_markup
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json=payload)
-
-def generate_edge_tts_audio(text, selected_voice):
-    try:
-        if selected_voice == "female":
-            voice = "en-US-JennyNeural"
-        else:
-            voice = "en-US-GuyNeural"
-
-        # Auto-detect Khmer script for Khmer voice synthesis
-        if any('\u1780' <= char <= '\u17ff' for char in text):
-            voice = "km-KH-SreymomNeural" if selected_voice == "female" else "km-KH-PisethNeural"
-
-        communicate = edge_tts.Communicate(text, voice)
-        audio_data = b""
-
-        async def fetch_stream():
-            nonlocal audio_data
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-
-        asyncio.run(fetch_stream())
-        return audio_data if audio_data else None
-    except Exception as e:
-        print(f"Edge TTS fallback error: {e}")
-        return None
 
 def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voice_b64):
     try:
@@ -76,15 +50,15 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 payload = {
                     "text": f"{prompt_prefix}{text}",
                     "cfg_value": 2.0,
-                    "dit_steps": 4
+                    "dit_steps": 4  # Maximum speed setting
                 }
                 target_url = PIXAZO_TTS_URL
 
             res = None
             try:
-                res = requests.post(target_url, json=payload, headers=headers, timeout=25)
+                res = requests.post(target_url, json=payload, headers=headers, timeout=45)
             except requests.exceptions.Timeout:
-                pixazo_error = "⏳ Pixazo server timed out (25s)."
+                pixazo_error = "⏳ Pixazo server timed out (45s)."
             except Exception as req_e:
                 pixazo_error = f"Pixazo request error: {req_e}"
 
@@ -102,20 +76,17 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                     clean_text = "Cloudflare Timeout (Pixazo GPU backend busy)"
                 
                 if status_code in [401, 403]:
-                    pixazo_error = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}"
+                    pixazo_error = f"🔑 Pixazo API Key Error ({status_code}): {clean_text}\nPlease check `PIXAZO_API_KEY` on Render."
                 elif status_code == 402:
                     pixazo_error = f"⚠️ Pixazo Account Balance Low ({status_code}): {clean_text}"
                 elif status_code == 522:
                     pixazo_error = f"⏳ Pixazo Gateway Timeout (522): Cloudflare connection timed out."
                 else:
                     pixazo_error = f"❌ Pixazo API Error ({status_code}): {clean_text}"
+        else:
+            pixazo_error = "⚠️ `PIXAZO_API_KEY` is missing in Render Environment Variables."
 
-        # 2. Secondary Failover Engine: Microsoft Edge TTS (Instant & Free 24/7)
-        if not wav_bytes:
-            print("Pixazo engine unavailable/failed. Falling back to Microsoft Edge TTS...")
-            wav_bytes = generate_edge_tts_audio(text, selected_voice)
-
-        # 3. Tertiary Engine: Google Colab / Modal API (if configured and previous failed)
+        # Fallback Engine: Google Colab / Modal API (if configured and Pixazo failed)
         if not wav_bytes and colab_url and "YOUR-NGROK-URL" not in colab_url:
             base_url = colab_url.rstrip("/")
             endpoints = [base_url if base_url.endswith("/generate") else f"{base_url}/generate", base_url]
@@ -151,7 +122,7 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
             user.usage_count += 1
             user.save()
         else:
-            final_err = pixazo_error or "⚠️ Speech synthesis failed. Please try again in a few moments."
+            final_err = pixazo_error or "⚠️ Pixazo VoxCPM synthesis failed. Please try again in a few moments."
             print(f"Synthesis error: {final_err}")
             send_telegram_msg(chat_id, final_err)
 
