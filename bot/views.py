@@ -57,7 +57,7 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
             res = None
             for attempt in range(3):
                 try:
-                    res = requests.post(target_url, json=payload, headers=headers, timeout=25)
+                    res = requests.post(target_url, json=payload, headers=headers, timeout=60)
                     if res.status_code == 200:
                         break
                     elif res.status_code in [502, 503, 504, 522] and attempt < 2:
