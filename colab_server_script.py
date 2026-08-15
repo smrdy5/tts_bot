@@ -88,6 +88,12 @@ async def generate_speech(request: Request):
         chunks = [raw_text]
 
     audio_segments = []
+    
+    # Force the local AI to be completely deterministic (no random voices)
+    torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
+        
     for chunk in chunks:
         if not chunk:
             continue
