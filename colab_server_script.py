@@ -31,10 +31,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 model = VoxCPM.from_pretrained("openbmb/VoxCPM2", load_denoiser=False)
 if torch.cuda.is_available():
     try:
-        model.to(device=device, dtype=torch.bfloat16)
+        model.to(device=device)
     except AttributeError:
         if hasattr(model, 'tts_model') and model.tts_model is not None:
-            model.tts_model.to(device=device, dtype=torch.bfloat16)
+            model.tts_model.to(device=device)
         if hasattr(model, 'vocoder') and model.vocoder is not None:
             model.vocoder.to(device=device)
 sample_rate = getattr(getattr(model, "tts_model", None), "sample_rate", 16000)
