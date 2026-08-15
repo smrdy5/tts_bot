@@ -44,7 +44,7 @@ class VoxCPMService:
         voice_mode = data.get("voice_mode", "male")
         ref_audio_b64 = data.get("reference_audio", None)
         
-        kwargs = {"cfg_value": 2.0, "inference_timesteps": 10}
+        kwargs = {"cfg_value": 2.0, "inference_timesteps": 25}
         temp_wav = None
 
         if voice_mode == "male":

@@ -22,7 +22,7 @@ def predict(text: str, voice_mode: str, reference_audio: str = None):
     if not text:
         text = "Hello."
 
-    kwargs = {"cfg_value": 2.0, "inference_timesteps": 10}
+    kwargs = {"cfg_value": 2.0, "inference_timesteps": 25}
 
     assets_dir = os.path.abspath("assets")
     if not os.path.exists(assets_dir):

@@ -6,6 +6,7 @@ class UserUsage(models.Model):
     last_reset_date = models.DateField(auto_now_add=True)
     selected_voice = models.CharField(max_length=10, default="male")
     custom_voice_b64 = models.TextField(null=True, blank=True)
+    is_tester = models.BooleanField(default=False)
 
     def __str__(self):
         return f"User {self.user_id} - Voice: {self.selected_voice} - Count: {self.usage_count}"

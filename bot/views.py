@@ -69,7 +69,7 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 payload = {
                     "text": f"{prompt_prefix}{text}",
                     "cfg_value": 2.0,
-                    "dit_steps": 4  # Maximum speed setting
+                    "dit_steps": 25  # High quality setting
                 }
                 target_url = PIXAZO_TTS_URL
 
@@ -223,6 +223,20 @@ def telegram_webhook(request):
         send_telegram_msg(chat_id, "🔄 Custom voice deleted! Reset voice mode to DEFAULT MALE.")
         return JsonResponse({"status": "ok"})
 
+    if text.startswith("/tester"):
+        password = os.getenv("TESTER_PASSWORD", "unlimited")
+        if text == f"/tester {password}":
+            user.is_tester = True
+            user.save()
+            send_telegram_msg(chat_id, "✅ Tester mode enabled! You now have unlimited requests.")
+        elif text == "/tester off":
+            user.is_tester = False
+            user.save()
+            send_telegram_msg(chat_id, "❌ Tester mode disabled.")
+        else:
+            send_telegram_msg(chat_id, "⚠️ Invalid tester command or password.")
+        return JsonResponse({"status": "ok"})
+
     # Handle Voice Note / Audio Upload for Persistent Voice Saving
     if message.get("voice") or message.get("audio"):
         attachment = message.get("voice") or message.get("audio")
@@ -249,7 +263,7 @@ def telegram_webhook(request):
             user.last_reset_date = today
             user.save()
 
-        if user.usage_count >= DAILY_LIMIT:
+        if user.usage_count >= DAILY_LIMIT and not user.is_tester:
             send_telegram_msg(chat_id, f"⚠️ Daily limit reached ({DAILY_LIMIT}/{DAILY_LIMIT}). Try again tomorrow.")
             return JsonResponse({"status": "ok"})
 

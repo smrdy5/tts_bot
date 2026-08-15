@@ -56,7 +56,7 @@ async def generate_speech(request: Request):
     for chunk in chunks:
         if not chunk:
             continue
-        gen_result = model.generate(text=chunk, cfg_value=2.0, inference_timesteps=10)
+        gen_result = model.generate(text=chunk, cfg_value=2.0, inference_timesteps=25)
         if isinstance(gen_result, tuple):
             chunk_audio, _ = gen_result
         else:
