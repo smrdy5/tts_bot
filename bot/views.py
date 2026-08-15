@@ -167,10 +167,11 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 "ngrok-skip-browser-warning": "69420",
                 "User-Agent": "Mozilla/5.0",
             }
+            local_ref_b64 = globals().get(f'PIXAZO_{selected_voice.upper()}_B64')
             colab_payload = {
                 "text": text,
                 "voice_mode": selected_voice,
-                "reference_audio": custom_voice_b64 if selected_voice == "custom" else None
+                "reference_audio": local_ref_b64
             }
             for ep in endpoints:
                 try:
@@ -220,14 +221,11 @@ def telegram_webhook(request):
         data = query["data"]
         
         user, _ = UserUsage.objects.get_or_create(user_id=user_id)
-        if data in ["male", "female", "custom"]:
+        if data in ["male", "female"]:
             user.selected_voice = data
             user.save()
-            if data == "custom" and not user.custom_voice_b64:
-                send_telegram_msg(chat_id, "🎙️ Custom Voice mode active! Please record and send me a voice note to save your speech voice.")
-            else:
-                voice_label = "CLONED CUSTOM VOICE" if data == "custom" else f"DEFAULT {data.upper()}"
-                send_telegram_msg(chat_id, f"✅ Voice mode set to: {voice_label}")
+            voice_label = f"DEFAULT {data.upper()}"
+            send_telegram_msg(chat_id, f"✅ Voice mode set to: {voice_label}")
         
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery", json={"callback_query_id": query["id"]})
         return JsonResponse({"status": "ok"})
@@ -245,32 +243,15 @@ def telegram_webhook(request):
     if text in ["/voice", "/start"]:
         keyboard = {"inline_keyboard": [
             [{"text": "👨 Default Male", "callback_data": "male"}],
-            [{"text": "👩 Default Female", "callback_data": "female"}],
-            [{"text": "🎙️ Clone My Voice", "callback_data": "custom"}]
+            [{"text": "👩 Default Female", "callback_data": "female"}]
         ]}
-        has_custom = " (Saved 🎙️)" if user.custom_voice_b64 else " (Not set)"
         send_telegram_msg(
             chat_id, 
-            f"Current Voice Mode: {user.selected_voice.upper()}{has_custom}\nSelect your preferred voice mode below:", 
+            f"Please select your preferred voice mode.\n\nCurrent Mode: {user.selected_voice.upper()}", 
             reply_markup=keyboard
         )
         return JsonResponse({"status": "ok"})
 
-    if text == "/myvoice":
-        if user.custom_voice_b64:
-            is_url = user.custom_voice_b64.startswith("http")
-            info = "Stored URL Profile" if is_url else f"{len(user.custom_voice_b64)//1024} KB Sample"
-            send_telegram_msg(chat_id, f"🎙️ Saved Custom Voice Profile:\n• Mode: {user.selected_voice.upper()}\n• Info: {info}\n\nAll text will be synthesized using this voice.")
-        else:
-            send_telegram_msg(chat_id, "ℹ️ No custom voice profile saved yet. Send a voice note to clone your voice!")
-        return JsonResponse({"status": "ok"})
-
-    if text == "/resetvoice":
-        user.custom_voice_b64 = None
-        user.selected_voice = "male"
-        user.save()
-        send_telegram_msg(chat_id, "🔄 Custom voice deleted! Reset voice mode to DEFAULT MALE.")
-        return JsonResponse({"status": "ok"})
 
     if text.startswith("/tester"):
         password = os.getenv("TESTER_PASSWORD", "unlimited").strip()
@@ -289,23 +270,6 @@ def telegram_webhook(request):
             send_telegram_msg(chat_id, "⚠️ Invalid tester command or password.")
         return JsonResponse({"status": "ok"})
 
-    # Handle Voice Note / Audio Upload for Persistent Voice Saving
-    if message.get("voice") or message.get("audio"):
-        attachment = message.get("voice") or message.get("audio")
-        file_id = attachment.get("file_id")
-        
-        file_info_resp = requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getFile?file_id={file_id}").json()
-        file_path = file_info_resp.get("result", {}).get("file_path")
-        
-        if file_path:
-            download_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
-            user.custom_voice_b64 = download_url
-            user.selected_voice = "custom"
-            user.save()
-            send_telegram_msg(chat_id, "✅ Custom voice permanently saved! All future text messages will be synthesized with this cloned voice.")
-        else:
-            send_telegram_msg(chat_id, "❌ Failed to retrieve voice note path from Telegram.")
-        return JsonResponse({"status": "ok"})
 
     # Handle Text-to-Speech Synthesis
     if text:

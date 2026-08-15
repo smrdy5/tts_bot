@@ -53,9 +53,35 @@ async def generate_speech(request: Request):
     if "application/json" in content_type:
         data = await request.json()
         raw_text = data.get("text", "Hello.")
+        voice_mode = data.get("voice_mode", "male")
+        ref_b64 = data.get("reference_audio")
     else:
         form = await request.form()
         raw_text = form.get("text", "Hello.")
+        voice_mode = form.get("voice_mode", "male")
+        ref_b64 = form.get("reference_audio")
+
+    kwargs = {"cfg_value": 2.0, "inference_timesteps": 25}
+    temp_ref_path = None
+    
+    if ref_b64:
+        import base64
+        import tempfile
+        import os
+        try:
+            if ref_b64.startswith("data:"):
+                ref_b64 = ref_b64.split(",")[1]
+            wav_data = base64.b64decode(ref_b64)
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            temp_file.write(wav_data)
+            temp_file.close()
+            temp_ref_path = temp_file.name
+            kwargs["reference_wav_path"] = temp_ref_path
+        except Exception as e:
+            print(f"Error decoding reference audio: {e}")
+            raw_text = f"({voice_mode}) {raw_text}"
+    else:
+        raw_text = f"({voice_mode}) {raw_text}"
 
     chunks = [c.strip() for c in re.split(r"(?<=[.!?]) +|\n+", raw_text) if c.strip()]
     if not chunks:
@@ -65,12 +91,19 @@ async def generate_speech(request: Request):
     for chunk in chunks:
         if not chunk:
             continue
-        gen_result = model.generate(text=chunk, cfg_value=2.0, inference_timesteps=25)
+        kwargs["text"] = chunk
+        gen_result = model.generate(**kwargs)
         if isinstance(gen_result, tuple):
             chunk_audio, _ = gen_result
         else:
             chunk_audio = gen_result
         audio_segments.append(chunk_audio)
+
+    if temp_ref_path and os.path.exists(temp_ref_path):
+        try:
+            os.remove(temp_ref_path)
+        except:
+            pass
 
     if audio_segments:
         final_audio = np.concatenate(audio_segments, axis=0)
