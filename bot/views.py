@@ -224,9 +224,9 @@ def telegram_webhook(request):
         return JsonResponse({"status": "ok"})
 
     if text.startswith("/tester"):
-        password = os.getenv("TESTER_PASSWORD", "unlimited")
+        password = os.getenv("TESTER_PASSWORD", "unlimited").strip()
         parts = text.split(maxsplit=1)
-        arg = parts[1] if len(parts) > 1 else ""
+        arg = parts[1].strip() if len(parts) > 1 else ""
         
         if arg == password:
             user.is_tester = True
