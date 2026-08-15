@@ -225,11 +225,14 @@ def telegram_webhook(request):
 
     if text.startswith("/tester"):
         password = os.getenv("TESTER_PASSWORD", "unlimited")
-        if text == f"/tester {password}":
+        parts = text.split(maxsplit=1)
+        arg = parts[1] if len(parts) > 1 else ""
+        
+        if arg == password:
             user.is_tester = True
             user.save()
             send_telegram_msg(chat_id, "✅ Tester mode enabled! You now have unlimited requests.")
-        elif text == "/tester off":
+        elif arg == "off":
             user.is_tester = False
             user.save()
             send_telegram_msg(chat_id, "❌ Tester mode disabled.")
