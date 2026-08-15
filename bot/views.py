@@ -18,9 +18,14 @@ def send_telegram_msg(chat_id, text, reply_markup=None):
         payload["reply_markup"] = reply_markup
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json=payload)
 
+def send_chat_action(chat_id, action="record_voice"):
+    payload = {"chat_id": chat_id, "action": action}
+    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction", json=payload)
+
 def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voice_b64):
     try:
         send_telegram_msg(chat_id, f"🗣️ Synthesizing speech ({selected_voice.upper()})...")
+        send_chat_action(chat_id, "record_voice")
 
         wav_bytes = None
         pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or PIXAZO_API_KEY
