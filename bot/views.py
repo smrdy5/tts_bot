@@ -69,14 +69,44 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 }
                 target_url = PIXAZO_CLONE_URL
             else:
-                prompt_prefix = f"({selected_voice}) "
-                payload = {
-                    "text": f"{prompt_prefix}{text}",
-                    "cfg_value": 2.0,
-                    "dit_steps": 25,  # High quality setting
-                    "seed": 12345 if selected_voice == "male" else 54321
-                }
-                target_url = PIXAZO_TTS_URL
+                # Generate a reference voice from Pixazo ONCE and cache it in memory
+                # This guarantees it sounds like Pixazo but is never random!
+                global PIXAZO_MALE_B64, PIXAZO_FEMALE_B64
+                if 'PIXAZO_MALE_B64' not in globals(): globals()['PIXAZO_MALE_B64'] = None
+                if 'PIXAZO_FEMALE_B64' not in globals(): globals()['PIXAZO_FEMALE_B64'] = None
+                
+                cached_b64 = globals()[f'PIXAZO_{selected_voice.upper()}_B64']
+                
+                if not cached_b64:
+                    # Generate a high-quality Khmer reference audio using the zero-shot TTS endpoint
+                    ref_text = f"({selected_voice}) សួស្តី ខ្ញុំជាសំឡេងយោងសម្រាប់ប្រព័ន្ធនេះ។ ខ្ញុំអាចនិយាយបានយ៉ាងច្បាស់។"
+                    ref_payload = {"text": ref_text, "cfg_value": 2.0, "dit_steps": 25}
+                    try:
+                        ref_res = requests.post(PIXAZO_TTS_URL, json=ref_payload, headers=headers, timeout=60)
+                        if ref_res.status_code == 200:
+                            ref_url_out = ref_res.json().get("output") or ref_res.json().get("url") or ref_res.json().get("audio_url")
+                            if ref_url_out:
+                                wav_resp = requests.get(ref_url_out, timeout=30)
+                                if wav_resp.status_code == 200:
+                                    cached_b64 = base64.b64encode(wav_resp.content).decode("utf-8")
+                                    globals()[f'PIXAZO_{selected_voice.upper()}_B64'] = cached_b64
+                    except Exception as e:
+                        print(f"Failed to generate Pixazo reference: {e}")
+
+                if cached_b64:
+                    payload = {
+                        "text": text,
+                        "reference_audio_url": f"data:audio/wav;base64,{cached_b64}"
+                    }
+                    target_url = PIXAZO_CLONE_URL
+                else:
+                    # Fallback to zero-shot if reference generation failed
+                    payload = {
+                        "text": f"({selected_voice}) {text}",
+                        "cfg_value": 2.0,
+                        "dit_steps": 25
+                    }
+                    target_url = PIXAZO_TTS_URL
 
             res = None
             for attempt in range(3):
