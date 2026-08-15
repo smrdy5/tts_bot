@@ -56,22 +56,21 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
 
             if selected_voice == "custom":
                 ref_url = custom_voice_b64
-                if ref_url and not (ref_url.startswith("http://") or ref_url.startswith("https://")):
-                    ref_url = f"data:audio/wav;base64,{ref_url}"
-
-                payload = {
-                    "text": text,
-                    "reference_audio_url": ref_url
-                }
-                target_url = PIXAZO_CLONE_URL
+            elif selected_voice == "male":
+                ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_male.wav"
+            elif selected_voice == "female":
+                ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_female.wav"
             else:
-                prompt_prefix = f"({selected_voice}) "
-                payload = {
-                    "text": f"{prompt_prefix}{text}",
-                    "cfg_value": 2.0,
-                    "dit_steps": 25  # High quality setting
-                }
-                target_url = PIXAZO_TTS_URL
+                ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_male.wav"
+
+            if ref_url and not (ref_url.startswith("http://") or ref_url.startswith("https://")):
+                ref_url = f"data:audio/wav;base64,{ref_url}"
+
+            payload = {
+                "text": text,
+                "reference_audio_url": ref_url
+            }
+            target_url = PIXAZO_CLONE_URL
 
             res = None
             for attempt in range(3):
