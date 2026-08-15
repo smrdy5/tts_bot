@@ -12,12 +12,15 @@ import nest_asyncio
 import uvicorn
 from fastapi import FastAPI, Request, Response
 import torch
+import ssl
+
+# Fix SSL Certificate Error for ngrok download
+ssl._create_default_https_context = ssl._create_unverified_context
 import numpy as np
 import soundfile as sf
 import io
 import re
 from voxcpm import VoxCPM
-from pyngrok import ngrok
 
 nest_asyncio.apply()
 
@@ -73,13 +76,38 @@ async def generate_speech(request: Request):
     return Response(content=buffer.getvalue(), media_type="audio/wav")
 
 if __name__ == "__main__":
-    # If using ngrok authtoken, un-comment line below:
-    # ngrok.set_auth_token("YOUR_NGROK_AUTHTOKEN")
-    
-    public_url = ngrok.connect(8000)
-    print("\n=======================================================")
-    print(f"🚀 COPY THIS NGROK URL TO RENDER (COLAB_API_URL):")
-    print(f"   {public_url}")
-    print("=======================================================\n")
+    import threading
+    import subprocess
+    import urllib.request
+    import os
+    import re
+
+    def start_cloudflare_tunnel():
+        exe_name = "cloudflared.exe" if os.name == 'nt' else "cloudflared"
+        if not os.path.exists(exe_name):
+            print("Downloading Cloudflare Tunnel...")
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" if os.name == 'nt' else "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+            urllib.request.urlretrieve(url, exe_name)
+            if os.name != 'nt':
+                os.chmod(exe_name, 0o755)
+        
+        print("Starting Cloudflare Tunnel...")
+        cmd = [exe_name, "tunnel", "--url", "http://127.0.0.1:8000"]
+        if os.name != 'nt': cmd[0] = f"./{exe_name}"
+        
+        proc = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, encoding='utf-8')
+        
+        for line in iter(proc.stderr.readline, ''):
+            match = re.search(r'https://[-a-zA-Z0-9]+\.trycloudflare\.com', line)
+            if match:
+                public_url = match.group(0)
+                print("\n=======================================================")
+                print(f"🚀 COPY THIS CLOUDFLARE URL TO RENDER (COLAB_API_URL):")
+                print(f"   {public_url}")
+                print("=======================================================\n")
+                break
+
+    # Start the tunnel in a background thread so it doesn't block uvicorn
+    threading.Thread(target=start_cloudflare_tunnel, daemon=True).start()
     
     uvicorn.run(app, host="0.0.0.0", port=8000)
