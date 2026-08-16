@@ -22,16 +22,26 @@ def send_telegram_msg(chat_id, text, reply_markup=None):
     payload = {"chat_id": chat_id, "text": text}
     if reply_markup: 
         payload["reply_markup"] = reply_markup
-    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json=payload)
+    res = requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage", json=payload)
+    try: return res.json()
+    except: return None
 
 def send_chat_action(chat_id, action="record_voice"):
     payload = {"chat_id": chat_id, "action": action}
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendChatAction", json=payload)
 
-def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voice_b64):
+def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voice_b64, orig_msg_id):
     try:
-        send_telegram_msg(chat_id, f"🗣️ Synthesizing speech ({selected_voice.upper()})...")
-        send_chat_action(chat_id, "record_voice")
+        status_msg = send_telegram_msg(chat_id, f"🗣️ Synthesizing speech ({selected_voice.upper()})...")
+        status_msg_id = status_msg.get("result", {}).get("message_id") if status_msg else None
+
+        stop_action_event = threading.Event()
+        def action_loop():
+            while not stop_action_event.is_set():
+                send_chat_action(chat_id, "record_voice")
+                stop_action_event.wait(4)
+        
+        threading.Thread(target=action_loop, daemon=True).start()
 
         wav_bytes = None
         pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or PIXAZO_API_KEY
@@ -186,6 +196,8 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                 except Exception:
                     pass
 
+        stop_action_event.set()
+        
         if wav_bytes:
             requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendVoice",
@@ -195,13 +207,22 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
             user = UserUsage.objects.get(id=user_db_id)
             user.usage_count += 1
             user.save()
+            
+            # Delete the user's original text message
+            if orig_msg_id:
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": orig_msg_id})
         else:
             final_err = pixazo_error or "⚠️ Pixazo VoxCPM synthesis failed. Please try again in a few moments."
             print(f"Synthesis error: {final_err}")
             send_telegram_msg(chat_id, final_err)
+            
+        # Delete the synthesizing status message
+        if status_msg_id:
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": status_msg_id})
 
     except Exception as e:
         print(f"Async synthesis error: {e}")
+        stop_action_event.set()
         send_telegram_msg(chat_id, "❌ Speech synthesis failed. Please try again later.")
     finally:
         connection.close()
@@ -237,6 +258,7 @@ def telegram_webhook(request):
     chat_id = message.get("chat", {}).get("id")
     user_id = message.get("from", {}).get("id")
     text = message.get("text", "").strip()
+    orig_msg_id = message.get("message_id")
     user, _ = UserUsage.objects.get_or_create(user_id=user_id)
 
     # Commands Handling
@@ -247,7 +269,7 @@ def telegram_webhook(request):
         ]}
         send_telegram_msg(
             chat_id, 
-            f"Please select your preferred voice mode.\n\nCurrent Mode: {user.selected_voice.upper()}", 
+            f"👋 Welcome to VoxCPM Bot!\n\nThis bot converts your text into highly realistic speech.\n\nPlease select your preferred voice mode below.\n\nCurrent Mode: {user.selected_voice.upper()}", 
             reply_markup=keyboard
         )
         return JsonResponse({"status": "ok"})
@@ -290,7 +312,7 @@ def telegram_webhook(request):
         # Spawn asynchronous thread so Webhook responds 200 OK immediately (< 50ms)
         threading.Thread(
             target=async_speech_synthesis,
-            args=(chat_id, user.id, text, user.selected_voice, user.custom_voice_b64)
+            args=(chat_id, user.id, text, user.selected_voice, user.custom_voice_b64, orig_msg_id)
         ).start()
 
         return JsonResponse({"status": "ok"})
