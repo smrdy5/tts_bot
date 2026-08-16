@@ -99,7 +99,7 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                     
                     if not cached_b64:
                         ref_text = f"({selected_voice}) សួស្តី ខ្ញុំជាសំឡេងយោងសម្រាប់ប្រព័ន្ធនេះ។ ខ្ញុំអាចនិយាយបានយ៉ាងច្បាស់។"
-                        ref_payload = {"text": ref_text, "cfg_value": 1.5, "dit_steps": 50}
+                        ref_payload = {"text": ref_text, "cfg_value": 1.1, "dit_steps": 50}
                         try:
                             ref_res = requests.post(PIXAZO_TTS_URL, json=ref_payload, headers=headers, timeout=60)
                             if ref_res.status_code == 200:
@@ -116,14 +116,14 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                         payload = {
                             "text": text,
                             "reference_audio_url": f"data:audio/wav;base64,{cached_b64}",
-                            "cfg_value": 1.5,
+                            "cfg_value": 1.1,
                             "dit_steps": 50
                         }
                         target_url = PIXAZO_CLONE_URL
                     else:
                         payload = {
                             "text": f"({selected_voice}) {text}",
-                            "cfg_value": 1.5,
+                            "cfg_value": 1.1,
                             "dit_steps": 50
                         }
                         target_url = PIXAZO_TTS_URL
@@ -209,10 +209,6 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
             user = UserUsage.objects.get(id=user_db_id)
             user.usage_count += 1
             user.save()
-            
-            # Delete the user's original text message
-            if orig_msg_id:
-                requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": orig_msg_id})
         else:
             final_err = pixazo_error or "⚠️ Pixazo VoxCPM synthesis failed. Please try again in a few moments."
             print(f"Synthesis error: {final_err}")
