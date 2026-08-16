@@ -282,6 +282,20 @@ def telegram_webhook(request):
         )
         return JsonResponse({"status": "ok"})
 
+    if text == "/policy":
+        policy_text = (
+            "📜 **Bot Policy & Privacy**\n"
+            "1. **Data Usage**: Your text is used only to generate speech. We do not permanently store your messages or audio files.\n"
+            "2. **Usage Limits**: Standard users are limited to 7 requests per day to ensure fair usage.\n"
+            "3. **Acceptable Use**: Please do not use this bot to generate illegal or harmful content.\n\n"
+            "📜 **គោលការណ៍របស់ Bot**\n"
+            "១. **ការប្រើប្រាស់ទិន្នន័យ**៖ អត្ថបទរបស់អ្នកត្រូវបានប្រើសម្រាប់តែបំប្លែងជាសំឡេងប៉ុណ្ណោះ។ យើងមិនរក្សាទុកសារ ឬឯកសារសំឡេងរបស់អ្នកទេ។\n"
+            "២. **ដែនកំណត់នៃការប្រើប្រាស់**៖ អ្នកប្រើប្រាស់ធម្មតាអាចប្រើបាន 7 ដងក្នុងមួយថ្ងៃ។\n"
+            "៣. **ការប្រើប្រាស់ត្រឹមត្រូវ**៖ សូមកុំប្រើប្រាស់ Bot នេះដើម្បីបង្កើតសំឡេងដែលខុសច្បាប់ ឬប៉ះពាល់ដល់អ្នកដទៃ។"
+        )
+        send_telegram_msg(chat_id, policy_text)
+        return JsonResponse({"status": "ok"})
+
 
     if text.startswith("/tester"):
         password = os.getenv("TESTER_PASSWORD", "unlimited").strip()
