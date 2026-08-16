@@ -45,7 +45,15 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
 
         wav_bytes = None
         pixazo_key = os.getenv("PIXAZO_API_KEY") or os.getenv("API_SECRET_KEY") or PIXAZO_API_KEY
+        
+        # Load dynamic tunnel URL if available
         colab_url = os.getenv("COLAB_API_URL") or os.getenv("MODAL_API_URL")
+        if os.path.exists("tunnel.json"):
+            try:
+                with open("tunnel.json", "r") as f:
+                    colab_url = json.load(f).get("url", colab_url)
+            except: pass
+            
         hf_space = os.getenv("HF_SPACE_ID") or os.getenv("HF_SPACE_NAME")
         pixazo_error = None
 
@@ -226,6 +234,18 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
         connection.close()
 
 @csrf_exempt
+def update_tunnel(request):
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            if "url" in data:
+                with open("tunnel.json", "w") as f:
+                    json.dump({"url": data["url"]}, f)
+                return JsonResponse({"status": "updated", "url": data["url"]})
+        except: pass
+    return JsonResponse({"status": "failed"})
+
+@csrf_exempt
 def telegram_webhook(request):
     if request.method != "POST":
         return JsonResponse({"status": "ok"})
@@ -322,6 +342,12 @@ def telegram_webhook(request):
             send_telegram_msg(chat_id, "❌ Tester mode disabled.")
         else:
             send_telegram_msg(chat_id, "⚠️ Invalid tester command or password.")
+        return JsonResponse({"status": "ok"})
+        
+    if "trycloudflare.com" in text:
+        with open("tunnel.json", "w") as f:
+            json.dump({"url": text}, f)
+        send_telegram_msg(chat_id, f"✅ **Local Server Connected!**\n\nI have successfully updated the fallback engine to use your local RTX 3060.\n\n🔗 `{text}`")
         return JsonResponse({"status": "ok"})
 
 

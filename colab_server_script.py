@@ -147,9 +147,25 @@ if __name__ == "__main__":
             if match:
                 public_url = match.group(0)
                 print("\n=======================================================")
-                print(f"🚀 COPY THIS CLOUDFLARE URL TO RENDER (COLAB_API_URL):")
-                print(f"   {public_url}")
+                print(f"🚀 LOCAL SERVER TUNNEL IS LIVE!")
+                print(f"URL: {public_url}")
+                print("\n👉 OPTION 1: Just copy the URL above and send it as a message to your Telegram Bot!")
                 print("=======================================================\n")
+                
+                # AUTOMATIC TUNNEL SYNC:
+                # If you host your Telegram bot on Render, paste your app URL below to automatically 
+                # send this new tunnel URL to your bot every time you start the server!
+                RENDER_BOT_WEBHOOK = "" # Example: "https://my-tts-bot.onrender.com"
+                
+                if RENDER_BOT_WEBHOOK and "http" in RENDER_BOT_WEBHOOK:
+                    try:
+                        print(f"Syncing tunnel automatically with your bot at {RENDER_BOT_WEBHOOK} ...")
+                        import requests
+                        endpoint = RENDER_BOT_WEBHOOK.rstrip("/") + "/update-tunnel/"
+                        requests.post(endpoint, json={"url": public_url}, timeout=5)
+                        print("✅ Successfully synced local server with your Telegram Bot!")
+                    except Exception as e:
+                        print(f"⚠️ Failed to sync with bot webhook: {e}")
                 break
 
     # Start the tunnel in a background thread so it doesn't block uvicorn
