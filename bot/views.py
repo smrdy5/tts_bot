@@ -268,9 +268,9 @@ def telegram_webhook(request):
             [{"text": "👩 Default Female", "callback_data": "female"}]
         ]}
         welcome_text = (
-            "👋 Welcome to Western TTS bot. សូមស្វាគម៍មកកាន់ វេស្ទីន TTS.\n\n"
+            "👋 Welcome to Western Text To Speech bot. សូមស្វាគម៍មកកាន់ វេស្ទីន តិច ធូ ស្ពីច.\n\n"
             "This bot converts your text into highly realistic speech.\n"
-            "រូបយន្តនេះបំប្លែងអត្ថបទរបស់អ្នកទៅជាសំឡេងនិយាយយ៉ាងពិរោះនិងដូចពិតៗ។\n\n"
+            "Bot នេះអាចបំប្លែងអត្ថបទរបស់អ្នកទៅជាសំឡេងនិយាយយ៉ាងពិរោះនិងដូចពិតៗ។\n\n"
             "Please select your preferred voice mode below.\n"
             "សូមជ្រើសរើសប្រភេទសំឡេងដែលអ្នកពេញចិត្តខាងក្រោម។\n\n"
             f"Current Mode: {user.selected_voice.upper()}"
