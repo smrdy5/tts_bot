@@ -349,7 +349,22 @@ def telegram_webhook(request):
     if "trycloudflare.com" in text:
         with open("tunnel.json", "w") as f:
             json.dump({"url": text}, f)
-        send_telegram_msg(chat_id, f"✅ **Local Server Connected!**\n\nI have successfully updated the fallback engine to use your local RTX 3060.\n\n🔗 `{text}`")
+        
+        # Delete user's link message
+        if orig_msg_id:
+            requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": orig_msg_id})
+            
+        resp = send_telegram_msg(chat_id, f"✅ **Local Server Connected!**\n\nI have successfully updated the fallback engine to use your local RTX 3060.\n\n🔗 `{text}`")
+        
+        if resp and "result" in resp:
+            bot_msg_id = resp["result"].get("message_id")
+            if bot_msg_id:
+                def delete_later():
+                    import time
+                    time.sleep(3)
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteMessage", json={"chat_id": chat_id, "message_id": bot_msg_id})
+                threading.Thread(target=delete_later, daemon=True).start()
+                
         return JsonResponse({"status": "ok"})
 
 
