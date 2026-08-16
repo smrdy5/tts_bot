@@ -267,9 +267,17 @@ def telegram_webhook(request):
             [{"text": "👨 Default Male", "callback_data": "male"}],
             [{"text": "👩 Default Female", "callback_data": "female"}]
         ]}
+        welcome_text = (
+            "👋 Welcome to Western TTS bot. សូមស្វាគម៍មកកាន់ វេស្ទីន TTS.\n\n"
+            "This bot converts your text into highly realistic speech.\n"
+            "រូបយន្តនេះបំប្លែងអត្ថបទរបស់អ្នកទៅជាសំឡេងនិយាយយ៉ាងពិរោះនិងដូចពិតៗ។\n\n"
+            "Please select your preferred voice mode below.\n"
+            "សូមជ្រើសរើសប្រភេទសំឡេងដែលអ្នកពេញចិត្តខាងក្រោម។\n\n"
+            f"Current Mode: {user.selected_voice.upper()}"
+        )
         send_telegram_msg(
             chat_id, 
-            f"👋 Welcome to VoxCPM Bot!\n\nThis bot converts your text into highly realistic speech.\n\nPlease select your preferred voice mode below.\n\nCurrent Mode: {user.selected_voice.upper()}", 
+            welcome_text,
             reply_markup=keyboard
         )
         return JsonResponse({"status": "ok"})
