@@ -99,17 +99,15 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                     }
                     target_url = PIXAZO_CLONE_URL
                 else:
-                    # Use absolute permanent reference audio to guarantee the voice NEVER changes
-                    if selected_voice == "male":
-                        ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_male.wav"
-                    else:
-                        ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_female.wav"
-                    
+                    # Use absolute permanent reference audio from local repository files
+                    with open("default_male.wav" if selected_voice == "male" else "default_female.wav", "rb") as f:
+                        wav_b64 = base64.b64encode(f.read()).decode("utf-8")
+                        
                     payload = {
                         "text": text,
-                        "reference_audio_url": ref_url,
-                        "cfg_value": 1.1,
-                        "dit_steps": 50,
+                        "reference_audio_url": f"data:audio/wav;base64,{wav_b64}",
+                        "cfg_value": 2.0,
+                        "dit_steps": 25,
                         "seed": 42
                     }
                     target_url = PIXAZO_CLONE_URL
