@@ -99,44 +99,20 @@ def async_speech_synthesis(chat_id, user_db_id, text, selected_voice, custom_voi
                     }
                     target_url = PIXAZO_CLONE_URL
                 else:
-                    global PIXAZO_MALE_B64, PIXAZO_FEMALE_B64
-                    if 'PIXAZO_MALE_B64' not in globals(): globals()['PIXAZO_MALE_B64'] = None
-                    if 'PIXAZO_FEMALE_B64' not in globals(): globals()['PIXAZO_FEMALE_B64'] = None
-                    
-                    cached_b64 = globals()[f'PIXAZO_{selected_voice.upper()}_B64']
-                    
-                    if not cached_b64:
-                        ref_text = f"({selected_voice}) សួស្តី ខ្ញុំជាសំឡេងយោងសម្រាប់ប្រព័ន្ធនេះ។ ខ្ញុំអាចនិយាយបានយ៉ាងច្បាស់។"
-                        ref_payload = {"text": ref_text, "cfg_value": 1.1, "dit_steps": 50, "seed": 42}
-                        try:
-                            ref_res = requests.post(PIXAZO_TTS_URL, json=ref_payload, headers=headers, timeout=60)
-                            if ref_res.status_code == 200:
-                                ref_url_out = ref_res.json().get("output") or ref_res.json().get("url") or ref_res.json().get("audio_url")
-                                if ref_url_out:
-                                    wav_resp = requests.get(ref_url_out, timeout=30)
-                                    if wav_resp.status_code == 200:
-                                        cached_b64 = base64.b64encode(wav_resp.content).decode("utf-8")
-                                        globals()[f'PIXAZO_{selected_voice.upper()}_B64'] = cached_b64
-                        except Exception as e:
-                            print(f"Failed to generate Pixazo reference: {e}")
-
-                    if cached_b64:
-                        payload = {
-                            "text": text,
-                            "reference_audio_url": f"data:audio/wav;base64,{cached_b64}",
-                            "cfg_value": 1.1,
-                            "dit_steps": 50,
-                            "seed": 42
-                        }
-                        target_url = PIXAZO_CLONE_URL
+                    # Use absolute permanent reference audio to guarantee the voice NEVER changes
+                    if selected_voice == "male":
+                        ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_male.wav"
                     else:
-                        payload = {
-                            "text": f"({selected_voice}) {text}",
-                            "cfg_value": 1.1,
-                            "dit_steps": 50,
-                            "seed": 42
-                        }
-                        target_url = PIXAZO_TTS_URL
+                        ref_url = "https://raw.githubusercontent.com/smrdy5/tts_bot/main/default_female.wav"
+                    
+                    payload = {
+                        "text": text,
+                        "reference_audio_url": ref_url,
+                        "cfg_value": 1.1,
+                        "dit_steps": 50,
+                        "seed": 42
+                    }
+                    target_url = PIXAZO_CLONE_URL
 
                 for attempt in range(3):
                     try:
