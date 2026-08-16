@@ -296,6 +296,18 @@ def telegram_webhook(request):
         send_telegram_msg(chat_id, policy_text)
         return JsonResponse({"status": "ok"})
 
+    if text in ["/about", "/team"]:
+        about_text = (
+            "👨‍💻 **Meet the Team**\n\n"
+            "This bot was proudly developed by our creators:\n"
+            "• Sito Eanfhong\n"
+            "• Mao Chanpha\n"
+            "• Sambath Makara\n"
+            "• Pha Somarady"
+        )
+        send_telegram_msg(chat_id, about_text)
+        return JsonResponse({"status": "ok"})
+
 
     if text.startswith("/tester"):
         password = os.getenv("TESTER_PASSWORD", "unlimited").strip()
