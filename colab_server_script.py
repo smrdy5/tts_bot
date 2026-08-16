@@ -61,7 +61,7 @@ async def generate_speech(request: Request):
         voice_mode = form.get("voice_mode", "male")
         ref_b64 = form.get("reference_audio")
 
-    kwargs = {"cfg_value": 2.0, "inference_timesteps": 25}
+    kwargs = {"cfg_value": 1.5, "inference_timesteps": 50}
     temp_ref_path = None
     
     if ref_b64:
